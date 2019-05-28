@@ -1,0 +1,218 @@
+#!/bin/bash
+# Copyright 2019
+# Created by Christopher Hittner and Justin Barish
+# All Rights Reserved.
+
+my_private_dir="/private" #this directory must only have root read access
+my_submission_dir="/public/submission" #this must be a folder that is NOT encrypted by the machine
+
+usage(){
+
+
+echo "usage: submit [options] student_name"
+echo "OPTIONS:" 1>&2
+echo "  -h   show this screen" 1>&2
+echo "  -d   <dir_name> submission is a directory" 1>&2
+echo "  -f   <file_name> submission is a file" 1>&2
+echo "  -i   interactive version" 1>&2
+echo "" 1>&2
+echo "This utility is used to submit your solution file" 1>&2
+echo "Sample runs of program:" 1>&2
+echo "   submit -h " 1>&2
+echo "        shows this help screen" 1>&2
+echo "   submit -d ./folder_name Bobby-Jones" 1>&2
+echo "        submits the director folder_name, with student name Bobby Jones" 1>&2
+echo "   submit -f  testfile.java Sue-Doe" 1>&2
+echo "        submits the file testfile.java, with student name Sue Doe" 1>&2
+echo "   submit -i" 1>&2
+echo "         launches interactive submission wizard" 1>&2
+
+exit $1
+
+}
+
+
+
+
+encrypt_file(){
+	my_file="$1"
+	
+	key_file="$my_private_dir/symmetric_key"
+	
+	openssl enc -aes-256-cbc -salt -in "$my_file" -out "$my_submission_dir/$my_file.enc" -pass file:"$key_file" -md md5 &> /dev/null
+
+    if [ $? -ne 0 ]; then
+        echo "Could not submit file" 1>&2
+    fi
+}
+
+directory=""
+filename=""
+interactive=0
+student_name=""
+submission=""
+
+while getopts ":hd:f:i" opt; do
+  case ${opt} in
+    d )
+      directory="$OPTARG"
+      ;;
+	f )
+      filename="$OPTARG"
+      ;;
+	h )
+      usage 0
+      ;;
+	i )
+	  interactive=1 	
+      ;;
+    \? )
+      echo "Error: Invalid option: $OPTARG" 1>&2
+	  usage 1
+      ;;
+    : )
+      echo "Error: Invalid option: $OPTARG requires an argument" 1>&2
+	  usage 1
+      ;;
+  esac
+done
+
+shift $((OPTIND -1))
+
+if [ "$interactive" -ne 1 ];then
+	if [ "$#" -eq 0 ];then
+		echo "Error! If not in interactive mode, you must provide your name!" 1>&2
+		echo "" 1>&2
+		usage 1
+	fi
+	
+	if [  ! -z "$directory" ] && [  ! -d "$directory" ] ;then
+		echo "Error! Provided directory of $directory doesn't exist." 1>&2
+		exit 2
+	fi
+	
+	if [  ! -z "$filename" ] && [  ! -f "$filename" ] ;then
+		echo "Error! Provided filename of $filename doesn't exist." 1>&2
+		exit 2
+	fi
+
+    if [[ "$(realpath $filename)" != /home/student/* ]]; then
+        echo "Error! Provided target of $filename doesn't exist in your home directory. Try again" 1>&2
+        exit 2
+    fi
+	
+	tmp_name="$1"
+
+	student_name="${tmp_name// /_}"
+	
+	#if it is a directory, tar it
+	if [  ! -z "$directory" ];then
+		dir_name="${directory// /_}"
+
+        if [ "${dir_name: -1}" == "/" ]; then
+            dir_name="${dir_name%?}"
+        fi
+
+		sub_dir_name="${dir_name##*/}"
+		submission="$student_name-$sub_dir_name"
+		submission="$submission.tar"
+		
+		tar -cf "$submission" "$directory"
+	elif [ ! -z "$filename" ]; then
+		
+		file_name="${filename// /_}"
+		sub_file_name="${file_name##*/}"
+		submission="$student_name-$sub_file_name"
+		
+		cp "${file_name}" "${submission}"
+	else
+		echo "error! No filename or directory name provided!" 1>&2
+		exit 2
+	fi
+
+	encrypt_file "$submission"
+
+else
+    
+    while :
+    do
+        echo "Please enter your first name:"
+        read -p "> " first_name
+
+        if [ ! -z "$first_name" ]
+        then break
+        else echo "First name cannot be blank"
+        fi
+    done
+	
+    while :
+    do
+        echo "Please enter your last name:"
+        read  -p "> " last_name
+        if [ ! -z "$last_name" ]
+        then break
+        else echo "Last name cannot be blank"
+        fi
+    done
+
+    while :
+    do
+        echo "Are you submitting a directory or file? (d/f):"
+        read -p "> " type
+        if [ "$type" == "d" ] || [ "$type" == "f" ]; then
+            break
+        else
+            echo "$type is not valid; it is not 'd' or 'f'"
+        fi
+    done
+	
+	submission=""
+	
+	while :
+	do
+		if [  "$type" == "d" ];then
+			echo "What is the path of the directory to submit? (example: folder/exam_folder)"
+			read -e -p "> " submission
+		elif [  "$type" == "f" ];then
+			echo "What is the path/name of the file to submit? (example: some_folder/file1.java):"
+			read -e -p "> " submission	
+		fi
+
+        submission="$(echo "${submission}" | sed -e "s|~|${HOME}|g")"
+		
+		if [  "$type" == "d"  ] && [  ! -d "$submission" ] ;then
+			echo "Error! Provided directory of $submission doesn't exist. Try again" 1>&2
+		elif [  "$type" == "f"  ] && [  ! -f "$submission" ] ;then
+			echo "Error! Provided filename of $submission doesn't exist. Try again" 1>&2
+        elif [[ "$(realpath $submission)" != /home/student/* ]]; then
+            echo "Error! Provided target of $submission doesn't exist in your home directory. Try again" 1>&2
+		else
+			break
+		fi
+	done
+	
+    if [ "${submission: -1}" == "/" ]; then
+        submission="${submission%?}"
+    fi
+
+	sub_submission="${submission##*/}"
+	sub_name="$first_name-$last_name-$sub_submission"
+	sub_name="${sub_name// /_}"
+
+
+	echo "$sub_name"
+	if [  "$type" == "d" ];then
+		sub_name="$sub_name.tar"
+		tar -cf "$sub_name" "$submission"
+	else 
+		cp "$submission" "$sub_name"
+	fi
+	
+	encrypt_file "$sub_name"
+	
+fi
+
+echo "Successfully submitted solution"
+
+exit 0
+

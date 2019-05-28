@@ -1,0 +1,55 @@
+#!/bin/bash
+# Copyright 2019
+# Created by Christopher Hittner and Justin Barish
+# All Rights Reserved.
+
+#TODO: CHange THese LInes
+my_private_key="/etc/keys/private_key_lb.pem" #this directory must only have root read access
+my_private_dir="/private/" #this directory must only have root read access
+	
+key_dir="/public/keys"
+
+get_all_keys(){
+
+	
+	enc_password_file="$key_dir/password.enc"
+	enc_prov_pub_key="$key_dir/pub_key_prov.enc"
+	enc_symmetric_key="$key_dir/symmetric_key.enc"
+
+	
+	# Get the symmetric_key using the student's private key.
+	openssl rsautl -decrypt -inkey "$my_private_key" -in "$enc_symmetric_key" -out "$my_private_dir/symmetric_key"
+	
+	# Get provisioning public key using the symmetric_key
+	openssl enc -d -aes-256-cbc -in "$enc_prov_pub_key" \
+			-out "$my_private_dir/prov_pub_key" \
+			-pass file:"$my_private_dir/symmetric_key" \
+            -md md5
+	
+	# Get password info using the symmetric key and the provisioning public key
+	password_data=$(openssl enc -d -aes-256-cbc -in "$enc_password_file" \
+			-pass file:"$my_private_dir/symmetric_key" -md md5 | \
+	openssl rsautl -verify -pubin -inkey "$my_private_dir/prov_pub_key")
+	
+	password=${password_data##*(}
+	password=${password%%,*}
+	
+	memreset=${password_data#*,}
+	memreset=${memreset%%,*}
+	
+	time=${password_data##*,}
+	time=${time%%)*}
+	
+	echo "$password $memreset $time"
+}
+
+mkdir -p /public/submission
+
+# Make sure directories are setup
+if [ ! -d /public/keys  ] || [ ! -f /public/keys/public_key_lb.pem ]
+then
+    # Generate a new keypair. NOTE: This will prevent booting into the box.
+    /usr/local/bin/makekeypair $key_dir/public_key_lb.pem $my_private_key
+fi
+
+get_all_keys

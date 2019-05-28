@@ -1,0 +1,6 @@
+
+# Root holds all of the keys
+root    ALL=(ALL)   ALL
+
+student ALL=NOPASSWD: /usr/local/bin/submit-assignment
+

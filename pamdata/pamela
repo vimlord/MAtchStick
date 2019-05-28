@@ -1,0 +1,7 @@
+# Copyright 2019
+# Created by Christopher Hittner and Justin Barish
+# All Rights Reserved.
+
+auth        required       pam_pamela.so
+account     required       pam_pamela.so
+password    required       pam_pamela.so

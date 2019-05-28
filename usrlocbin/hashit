@@ -1,0 +1,7 @@
+#!/bin/sh
+# Copyright 2019
+# Created by Christopher Hittner and Justin Barish
+# All Rights Reserved.
+
+echo -n "$1" | sha256sum
+

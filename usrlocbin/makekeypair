@@ -1,0 +1,14 @@
+# Copyright 2019
+# Created by Christopher Hittner and Justin Barish
+# All Rights Reserved.
+
+# Default planned usage is to pass in 'lb'
+PUBKEY="$1"
+PRIVKEY="$2"
+
+openssl genpkey -algorithm RSA -out "$PRIVKEY" -pkeyopt rsa_keygen_bits:2048
+echo Generated private key "$PRIVKEY"
+
+openssl rsa -pubout -in "$PRIVKEY" -out "$PUBKEY"
+echo Generated public key "$PUBKEY"
+
