@@ -1,0 +1,292 @@
+#!/bin/bash
+
+
+results=()
+current_drives=()
+local_key_dir="./keys"
+symmetric_key_file="$local_key_dir"/symmetric_key
+local_submission_dir="./retrieved_submissions"
+
+#TODO: Change These Lines
+remote_submission_dir="/submission"
+remote_key_dir="/keys"
+
+usage(){
+	echo ""
+	echo "MAtchStick Provisioning Script" 1>&2
+	echo "Usage: ./provision" 1>&2
+	echo "  This program takes no arguments." 1>&2
+	echo "  To provision drives with the custom password, select option 1" 1>&2
+	echo "  To retrieve submissions from the drives, select option 2" 1>&2
+	echo "  Both options 1 and 2 automatically detect any new" 1>&2
+	echo "   flash drives. To exit either, press ctrl-c."1>&2
+	
+	
+	exit $1
+}
+
+check_substr(){
+
+	orig="$1"
+	new_str="$2"
+	
+	#echo "orig:$orig"
+	#echo "new:$new_str"
+	
+	if [ -z "${orig##*$new_str*}" ]; then
+		return 1	
+	
+	fi
+	
+	return 0
+	
+
+}
+
+mount_diff(){
+	
+	orig="$1"
+	new="$2"
+	results=()
+
+	while read i; do check_substr "$orig" "$i"; if [ $? -eq 0 ];then results+=( "$i" );  fi;  done <<< "$new"
+	##echo "num: ${#results[@]}"
+	
+}
+
+check_known(){
+	for i in "${current_drives[@]}"
+	do
+		if [ "$i" == "$1" ];then
+			return 1
+		fi
+	done
+	
+	return 0
+
+}
+
+
+get_new_drives(){
+	new_drives=()
+	tmp=()
+	for i in "${results[@]}"
+	do
+		if [ ! -z "$i" ]; then
+			drive=${i##*on }
+			drive=${drive%% type*}
+			
+			tmp+=("$drive")
+			
+			check_known "$drive"
+			
+			if [ $? -eq 0 ];then
+				new_drives+=("$drive")
+			fi
+		fi
+	done
+	
+	current_drives=("${tmp[@]}")
+}
+
+
+gen_pub_priv_pair(){
+
+if [ ! -d "$local_key_dir" ];then
+	
+	mkdir "$local_key_dir"
+	rm -f "$local_key_dir"/private_key.pem
+	rm -f "$local_key_dir"/public_key.pem
+	
+fi
+
+openssl genpkey -algorithm RSA -out "$local_key_dir"/private_key.pem -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in "$local_key_dir"/private_key.pem -out "$local_key_dir"/public_key.pem
+
+}
+
+
+generate_symmetric_key(){
+	openssl rand -hex  -out "$symmetric_key_file" 64
+}
+
+
+provision_drive(){
+	
+	drive="$1"
+	pass="$2"
+	mem="$3"
+	timelimit="$4"
+	
+	passfile="$local_key_dir"/public_key.pem
+	private_passfile="$local_key_dir"/private_key.pem
+
+	rem_key_path="$drive$remote_key_dir"
+	rem_pub_key="$rem_key_path"/public_key_lb.pem
+	
+	hash=$(echo -n $pass | sha256sum |  cut -d ' ' -f1)
+	
+	echo "$pass.$hash.$mem.$timelimit"
+	
+	symmetric_key_file="$local_key_dir"/symmetric_key
+	
+	
+	
+	echo "($hash,$mem,$timelimit)" | \
+	openssl rsautl -sign -inkey "$private_passfile" | \
+	openssl enc -aes-256-cbc -salt -out "$rem_key_path"/password.enc -pass file:"$symmetric_key_file" -md md5
+	
+	
+	
+	#openssl rsautl -encrypt -inkey "$rem_pub_key" \
+	 #         -pubin -out "$rem_key_path"/password.enc
+			  
+			  
+	openssl enc -aes-256-cbc -salt -in "$passfile" -out "$rem_key_path"/pub_key_prov.enc -pass file:"$symmetric_key_file" -md md5
+	
+	openssl rsautl -encrypt -inkey "$rem_pub_key" -pubin \
+		-in "$symmetric_key_file" -out "$rem_key_path"/symmetric_key.enc 
+	
+	#lastly, remove anything in the submission directory
+	#rm -rf "$drive$submission"/*
+
+
+}
+
+grab_file(){
+
+	drive="$1"
+	if [ ! -d "$local_submission_dir" ];then
+		mkdir "$local_submission_dir"
+	fi
+	
+	rem_sub_dir="$drive/$remote_submission_dir"
+	local_sym_key="$local_key_dir/symmetric_key"
+	echo "$rem_sub_dir"
+	for f in "$rem_sub_dir/"*
+	do
+		fname=${f##*/}
+		fname=${fname%%.enc*}
+		echo "reading $f, writing $local_submission_dir/$fname"
+		openssl enc -d -aes-256-cbc -in "$f" \
+				-out "$local_submission_dir/$fname" \
+				-pass file:"$local_sym_key" \
+				-md md5
+	done
+	
+	
+
+}
+
+
+echo "Welcome to LinuxBox Provisioning Server."
+echo "Please select an option below:"
+echo "    (1) Password Set"
+echo "    (2) Data Extraction"
+echo "    (3) Help"
+
+read choice
+
+if  [ -z "$choice" ] || [ "$choice" -eq 3 ]; then
+	usage 0
+fi
+
+if [ "$choice" -ne 1 ] && [ "$choice" -ne 2 ];then
+	usage 1
+fi
+
+
+printf "\nBefore initializing USB ports, please remove any USB devices"
+printf " that you wish for this script to have access to.\n"
+read -p "Press ENTER when you have done so."
+
+initial_set=$(mount)
+
+if [ "$choice" -eq 1 ];then
+
+	while :
+	do
+		printf "\nPlease enter a password to use as login on the linux boxes:\n"
+		read pass
+		if [ -z "$pass" ];then
+			printf "\nPassword cannot be blank!"
+		else
+			break
+		fi
+		
+	done
+	echo ""
+	echo ""
+	
+	if [ -f "$symmetric_key_file" ];then
+		printf "Existing keys found. Generate new ones? (y/n):"
+		read new_key
+		
+		if [ "$new_key" == "y" ];then
+			printf "\n\nWARNING: Creating new keys will require setting new passwords on all drives,\n"
+			printf "and will cause any data on existing drives to be unaccessible.\n"
+			printf "Are you sure you want to continue? (y/n):"
+			read new_key_2
+			if [ "$new_key_2" == "y" ];then
+				gen_pub_priv_pair
+				generate_symmetric_key
+			fi
+		fi
+	else
+		gen_pub_priv_pair
+		generate_symmetric_key
+	
+	fi
+	
+	while :
+	do
+		echo "When students start their computer, should the memory be wiped? (y/n)"
+		read wipe
+		
+		if [ "$wipe" == "y" ];then
+			wipe="1"
+			break
+		elif [ "$wipe" == "n" ];then
+			wipe="0"
+			break
+		else
+			echo "Please answer y/n"
+		fi
+	done
+	
+	
+
+	
+fi
+
+if [ "$choice" -eq 1 ] || [ "$choice" -eq 2 ];then
+	echo "Waiting for USB Devices. Press ctrl-c to quit"
+	while :
+	do
+
+		results=()
+		new_set=$(mount)
+		mount_diff "$initial_set" "$new_set"
+	
+		new_drives=()
+		get_new_drives "$results"
+		
+		if [ ${#new_drives[@]} -gt 0 ];then
+			echo "Found New Drives: ${new_drives[@]}"
+			
+			
+			for i in "${new_drives[@]}"
+			do
+				if [ "$choice" -eq 1 ];then
+					provision_drive "$i" "$pass" "$wipe" "0"
+					echo "Done provisioning drive $i"
+				elif [ "$choice" -eq 2 ];then
+					grab_file "$i"
+					echo "Done retrieving from drive $i"
+				fi
+				echo ""
+			done
+		fi
+
+	done	
+fi	
