@@ -28,7 +28,7 @@ work with the drives
 5. Repeat steps 2-4 ad infinitum
 
 
-##1. Creating MAtchStick USBs
+## 1. Creating MAtchStick USBs
 
 This tool installs the operating system with a custom authentication module
 (Pluggable Authentication Module; PAM) and provides key management to ensure
@@ -97,7 +97,7 @@ The USB requires UEFI compatibility to be booted, which will only be an issue
 with older computers. However, this is anticipated to be unlikely to cause
 issues.
 
-##2. Provisioning Computer
+## 2. Provisioning Computer
 
 The provisioning computer is designed to assign passwords for login on the MAtchStick 
 USBs, and to extract the completed student submissions. A script is provided to 
@@ -126,7 +126,7 @@ automatically detect and grab the files from them. You may insert any number of 
 at a time, and remove them when the command prompt prints out that it is done.
 4. Press ctrl-c to exit the provisioning script at any time.
 
-##3. Host Computer
+## 3. Host Computer
 MAtchStick has been tested on numerous computers, and will work on any 
 PC that supports UEFI boot. It will also work on any pre-2016 Mac/MacBook.
 
